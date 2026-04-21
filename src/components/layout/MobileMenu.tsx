@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Search } from "lucide-react";
+import { Menu, X, Search, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const NAV_LINKS = [
   { href: "/search", label: "Search", icon: true },
@@ -23,7 +24,11 @@ const NAV_LINKS = [
   { href: "/leaderboard/zaps", label: "⚡ Top Zappers" },
 ];
 
-export function MobileMenu() {
+interface MobileMenuProps {
+  isAuthenticated: boolean;
+}
+
+export function MobileMenu({ isAuthenticated = false }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -103,6 +108,16 @@ export function MobileMenu() {
                 </Link>
                 );
               })}
+              {isAuthenticated && (
+                <div className="px-4 pt-2 pb-3">
+                  <Link href="/gigs/new" onClick={() => setIsOpen(false)}>
+                    <Button size="sm" className="w-full">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Post a Gig
+                    </Button>
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </>

@@ -43,7 +43,7 @@ export async function Header({ showPostGig = true }: HeaderProps) {
           />
         </Link>
         <nav className="flex items-center gap-2 min-w-0 shrink-0">
-          <MobileMenu />
+          <MobileMenu isAuthenticated={!!user} />
           <HeaderSearch />
           <NavLinks />
 

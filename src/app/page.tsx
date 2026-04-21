@@ -1,8 +1,20 @@
 import Link from "next/link";
 import { Search, Users, Video, Zap, Check, ArrowRight, Sparkles, Bot, Terminal, Key, Download } from "lucide-react";
 import { Header } from "@/components/layout/Header";
+import { createClient } from "@/lib/supabase/server";
 
-export default function Home() {
+async function getAuthStatus() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return !!user;
+}
+
+export default async function Home() {
+  const isAuthenticated = await getAuthStatus();
+  const postGigHref = isAuthenticated ? "/gigs/new" : "/signup";
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
@@ -32,7 +44,7 @@ export default function Home() {
                 Browse Gigs
               </Link>
               <Link
-                href="/signup"
+                href={postGigHref}
                 className="bg-card text-foreground border border-border px-8 py-3.5 rounded-lg text-lg font-medium hover:bg-muted transition-all shadow-sm hover:shadow-md hover:-translate-y-0.5"
               >
                 Post a Gig
