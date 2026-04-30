@@ -295,10 +295,10 @@ export async function extractMetadataWithPuppeteer(urlString: string): Promise<E
 
   let browser;
   try {
-    // Dynamic import — puppeteer is an optional dependency
-    // Use variable to prevent Vite static analysis from failing on missing dep
-    const puppeteerModule = "puppeteer";
-    const puppeteer = await import(/* @vite-ignore */ puppeteerModule);
+    // Puppeteer is optional. Use Function to keep Turbopack from resolving
+    // the package at build time when it is intentionally not installed.
+    const importOptional = new Function("specifier", "return import(specifier)") as <T>(specifier: string) => Promise<T>;
+    const puppeteer = await importOptional<{ launch: (options: Record<string, unknown>) => Promise<any> }>("puppeteer");
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
