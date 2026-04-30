@@ -257,10 +257,13 @@ ugig skills create --title "Web Scraper" \
   --price 500 \
   --tags "scraping,automation"
 
-# Promote one listing across external skill marketplaces
+# Publish one listing on uGig
+ugig skills publish my-skill-slug
+
+# Promote one listing across external skill marketplaces via local sh1pt
 ugig skills publish my-skill-slug --everywhere --dry-run --marketplace clawhub,goose
 
-# Build a publish-everywhere checklist for all your skills
+# Build a local sh1pt marketplace checklist for all your uGig skills
 ugig skills publish --all --dry-run
 
 # Update a listing
