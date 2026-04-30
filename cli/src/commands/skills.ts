@@ -1,6 +1,8 @@
 import type { Command } from "commander";
-import { readFileSync } from "fs";
-import { basename } from "path";
+import { spawnSync } from "child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
 import ora from "ora";
 import { createClient, handleError, parseList, type GlobalOpts } from "../helpers.js";
 import {
@@ -19,6 +21,19 @@ type PublishResultRow = {
   url?: string;
   command?: string;
   note?: string;
+};
+
+type SkillListingForSh1pt = Record<string, unknown> & {
+  slug?: string;
+  title?: string;
+  description?: string;
+  tagline?: string | null;
+  category?: string | null;
+  tags?: string[] | string | null;
+  price_sats?: number | string | null;
+  skill_file_url?: string | null;
+  source_url?: string | null;
+  website_url?: string | null;
 };
 
 function parseCredentials(values: string[] | undefined): Record<string, string> {
@@ -44,6 +59,61 @@ function printPublishEverywhereResults(results: Array<Record<string, unknown>>):
       if (row.note) console.log(`    Note: ${row.note}`);
     }
   }
+}
+
+function listingToSh1ptManifest(listing: SkillListingForSh1pt): Record<string, unknown> {
+  const slug = String(listing.slug || listing.title || "skill")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "skill";
+  const tags = Array.isArray(listing.tags)
+    ? listing.tags.map(String)
+    : typeof listing.tags === "string"
+      ? listing.tags.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+  const sourceUrl = listing.skill_file_url || listing.source_url || listing.website_url || undefined;
+
+  return {
+    name: slug,
+    title: String(listing.title || slug),
+    description: String(listing.description || listing.tagline || `uGig skill: ${slug}`),
+    tagline: listing.tagline || undefined,
+    category: listing.category || "Automation",
+    tags: tags.length ? tags.slice(0, 10) : ["skills", "automation"],
+    price: Number(listing.price_sats || 0) || 0,
+    skillFile: sourceUrl || "SKILL.md",
+    sourceUrl,
+    marketplaces: {},
+  };
+}
+
+function runSh1ptSkillsPublish(
+  listing: SkillListingForSh1pt,
+  opts: { marketplaces?: string[]; dryRun: boolean; all: boolean },
+): { slug: string; exitCode: number | null; stdout: string; stderr: string; command: string } {
+  const dir = mkdtempSync(join(tmpdir(), "ugig-sh1pt-publish-"));
+  const manifestPath = join(dir, "sh1pt.skill.json");
+  const manifest = listingToSh1ptManifest(listing);
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const args = ["skills", "publish", "--manifest", manifestPath];
+  if (opts.all || !opts.marketplaces?.length) args.push("--all");
+  for (const marketplace of opts.marketplaces || []) args.push("--marketplace", marketplace);
+  if (opts.dryRun) args.push("--dry-run");
+
+  const sh1ptBin = process.env.SH1PT_BIN || "sh1pt";
+  const result = sh1ptBin.includes(" ")
+    ? spawnSync(`${sh1ptBin} ${args.map((arg) => JSON.stringify(arg)).join(" ")}`, { encoding: "utf8", shell: true })
+    : spawnSync(sh1ptBin, args, { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+
+  return {
+    slug: String(manifest.name),
+    exitCode: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || result.error?.message || "",
+    command: `${sh1ptBin} ${args.join(" ")}`,
+  };
 }
 
 export function registerSkillsCommands(program: Command): void {
@@ -447,25 +517,33 @@ export function registerSkillsCommands(program: Command): void {
         const marketplaces = parseList(cmdOpts.marketplace);
 
         if (cmdOpts.all || cmdOpts.everywhere) {
-          const endpoint = slug
-            ? `/api/skills/${slug}/publish-everywhere`
-            : "/api/skills/publish-everywhere";
-          const spinner = opts.json ? null : ora("Building publish-everywhere plan...").start();
+          const spinner = opts.json ? null : ora("Delegating publish plan to sh1pt skills publish...").start();
           try {
-            const result = await client.post<{
-              dry_run?: boolean;
-              results: Array<Record<string, unknown>>;
-            }>(endpoint, {
-              all: Boolean(cmdOpts.all || !slug),
-              dry_run: cmdOpts.dryRun !== false,
+            if (Object.keys(credentials).length && !opts.json) {
+              spinner?.warn("Credential hints are ignored here; pass credentials to sh1pt via environment variables.");
+            }
+
+            const listings = cmdOpts.all || !slug
+              ? (await client.get<{ listings: SkillListingForSh1pt[] }>("/api/skills/my")).listings
+              : [(await client.get<{ listing: SkillListingForSh1pt }>(`/api/skills/${slug}`)).listing];
+
+            const results = listings.map((listing) => runSh1ptSkillsPublish(listing, {
+              all: Boolean(cmdOpts.all || !marketplaces?.length),
+              dryRun: cmdOpts.dryRun !== false,
               marketplaces,
-              credentials,
-            });
+            }));
+
             spinner?.stop();
             if (opts.json) {
-              console.log(JSON.stringify(result, null, 2));
+              console.log(JSON.stringify({ dry_run: cmdOpts.dryRun !== false, results }, null, 2));
             } else {
-              printPublishEverywhereResults(result.results);
+              for (const result of results) {
+                console.log(`\n${result.slug}`);
+                console.log(`  sh1pt: ${result.exitCode === 0 ? "ok" : "failed"}`);
+                console.log(`  Command: ${result.command}`);
+                if (result.stdout.trim()) console.log(result.stdout.trim());
+                if (result.stderr.trim()) console.error(result.stderr.trim());
+              }
             }
           } catch (err) {
             spinner?.fail("Failed");

@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerSkillsCommands } from "./skills.js";
 
+const { mockSpawnSync } = vi.hoisted(() => ({
+  mockSpawnSync: vi.fn(() => ({ status: 0, stdout: "sh1pt plan", stderr: "" })),
+}));
+
+vi.mock("child_process", () => ({
+  spawnSync: mockSpawnSync,
+}));
+
 vi.mock("ora", () => ({
   default: vi.fn(() => ({
     start: vi.fn().mockReturnThis(),
@@ -188,8 +196,16 @@ describe("skills update", () => {
 });
 
 describe("skills publish everywhere", () => {
-  it("calls publish-everywhere for one skill with selected marketplaces", async () => {
-    mockClient.post.mockResolvedValue({ results: [] });
+  it("delegates one skill publish planning to sh1pt with selected marketplaces", async () => {
+    mockClient.get.mockResolvedValue({
+      listing: {
+        slug: "my-skill",
+        title: "My Skill",
+        description: "Does things",
+        skill_file_url: "https://example.com/SKILL.md",
+        tags: ["automation"],
+      },
+    });
 
     await run([
       "skills",
@@ -201,25 +217,32 @@ describe("skills publish everywhere", () => {
       "--dry-run",
     ]);
 
-    expect(mockClient.post).toHaveBeenCalledWith("/api/skills/my-skill/publish-everywhere", {
-      all: false,
-      dry_run: true,
-      marketplaces: ["clawhub", "goose"],
-      credentials: {},
-    });
+    expect(mockClient.get).toHaveBeenCalledWith("/api/skills/my-skill");
+    expect(mockClient.post).not.toHaveBeenCalledWith(expect.stringContaining("publish-everywhere"), expect.anything());
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      "sh1pt",
+      expect.arrayContaining(["skills", "publish", "--marketplace", "clawhub", "--marketplace", "goose", "--dry-run"]),
+      expect.objectContaining({ encoding: "utf8" }),
+    );
   });
 
-  it("calls publish-everywhere for all owned skills", async () => {
-    mockClient.post.mockResolvedValue({ results: [] });
+  it("delegates all owned skill publish planning to sh1pt", async () => {
+    mockClient.get.mockResolvedValue({
+      listings: [
+        { slug: "skill-one", title: "Skill One", description: "One" },
+        { slug: "skill-two", title: "Skill Two", description: "Two" },
+      ],
+    });
 
     await run(["skills", "publish", "--all", "--dry-run"]);
 
-    expect(mockClient.post).toHaveBeenCalledWith("/api/skills/publish-everywhere", {
-      all: true,
-      dry_run: true,
-      marketplaces: undefined,
-      credentials: {},
-    });
+    expect(mockClient.get).toHaveBeenCalledWith("/api/skills/my");
+    expect(mockSpawnSync).toHaveBeenCalledTimes(2);
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      "sh1pt",
+      expect.arrayContaining(["skills", "publish", "--all", "--dry-run"]),
+      expect.objectContaining({ encoding: "utf8" }),
+    );
   });
 });
 

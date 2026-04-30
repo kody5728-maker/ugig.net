@@ -1,8 +1,86 @@
-import { readFileSync } from "fs";
-import { basename } from "path";
+import { spawnSync } from "child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
 import ora from "ora";
-import { createClient, handleError } from "../helpers.js";
+import { createClient, handleError, parseList } from "../helpers.js";
 import { printTable, printDetail, printSuccess, relativeDate, truncate, } from "../output.js";
+function parseCredentials(values) {
+    const credentials = {};
+    for (const value of values || []) {
+        const idx = value.indexOf("=");
+        if (idx <= 0)
+            continue;
+        credentials[value.slice(0, idx)] = value.slice(idx + 1);
+    }
+    return credentials;
+}
+function printPublishEverywhereResults(results) {
+    for (const item of results) {
+        const slug = String(item.slug || "");
+        const title = String(item.title || slug || "skill");
+        console.log(`\n${title}${slug ? ` (${slug})` : ""}`);
+        const rows = (Array.isArray(item.results) ? item.results : []);
+        for (const row of rows) {
+            console.log(`  ${row.name || row.marketplace}: ${row.status || "unknown"}`);
+            if (row.url)
+                console.log(`    URL: ${row.url}`);
+            if (row.command)
+                console.log(`    Command: ${row.command}`);
+            if (row.note)
+                console.log(`    Note: ${row.note}`);
+        }
+    }
+}
+function listingToSh1ptManifest(listing) {
+    const slug = String(listing.slug || listing.title || "skill")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "skill";
+    const tags = Array.isArray(listing.tags)
+        ? listing.tags.map(String)
+        : typeof listing.tags === "string"
+            ? listing.tags.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
+    const sourceUrl = listing.skill_file_url || listing.source_url || listing.website_url || undefined;
+    return {
+        name: slug,
+        title: String(listing.title || slug),
+        description: String(listing.description || listing.tagline || `uGig skill: ${slug}`),
+        tagline: listing.tagline || undefined,
+        category: listing.category || "Automation",
+        tags: tags.length ? tags.slice(0, 10) : ["skills", "automation"],
+        price: Number(listing.price_sats || 0) || 0,
+        skillFile: sourceUrl || "SKILL.md",
+        sourceUrl,
+        marketplaces: {},
+    };
+}
+function runSh1ptSkillsPublish(listing, opts) {
+    const dir = mkdtempSync(join(tmpdir(), "ugig-sh1pt-publish-"));
+    const manifestPath = join(dir, "sh1pt.skill.json");
+    const manifest = listingToSh1ptManifest(listing);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    const args = ["skills", "publish", "--manifest", manifestPath];
+    if (opts.all || !opts.marketplaces?.length)
+        args.push("--all");
+    for (const marketplace of opts.marketplaces || [])
+        args.push("--marketplace", marketplace);
+    if (opts.dryRun)
+        args.push("--dry-run");
+    const sh1ptBin = process.env.SH1PT_BIN || "sh1pt";
+    const result = sh1ptBin.includes(" ")
+        ? spawnSync(`${sh1ptBin} ${args.map((arg) => JSON.stringify(arg)).join(" ")}`, { encoding: "utf8", shell: true })
+        : spawnSync(sh1ptBin, args, { encoding: "utf8" });
+    rmSync(dir, { recursive: true, force: true });
+    return {
+        slug: String(manifest.name),
+        exitCode: result.status,
+        stdout: result.stdout || "",
+        stderr: result.stderr || result.error?.message || "",
+        command: `${sh1ptBin} ${args.join(" ")}`,
+    };
+}
 export function registerSkillsCommands(program) {
     const skills = program.command("skills").description("Manage skill marketplace listings");
     // ── List skills ────────────────────────────────────────────────
@@ -63,6 +141,7 @@ export function registerSkillsCommands(program) {
     // ── Create skill listing ───────────────────────────────────────
     skills
         .command("create")
+        .alias("new")
         .description("Create a new skill listing")
         .requiredOption("--title <title>", "Skill title")
         .requiredOption("--description <text>", "Skill description")
@@ -296,15 +375,63 @@ export function registerSkillsCommands(program) {
             handleError(err, opts);
         }
     });
-    // ── Publish (activate) a skill ──────────────────────────────────
+    // ── Publish / publish everywhere ────────────────────────────────
     skills
-        .command("publish <slug>")
-        .description("Publish a skill listing (set status to active)")
-        .action(async (slug) => {
+        .command("publish [slug]")
+        .description("Publish a skill listing, or promote skills across external marketplaces")
+        .option("--everywhere", "Promote one skill across known marketplaces")
+        .option("--all", "Promote all of your skill listings across known marketplaces")
+        .option("--marketplace <ids>", "Comma-separated marketplace IDs to target")
+        .option("--dry-run", "Return commands/checklist without attempting live marketplace actions", true)
+        .option("--no-dry-run", "Allow server-side live publish attempts when a marketplace integration supports it")
+        .option("--credential <key=value...>", "Per-request marketplace credential hints; never stored")
+        .action(async (slug, cmdOpts) => {
         const opts = program.opts();
+        const client = createClient(opts);
+        const credentials = parseCredentials(cmdOpts.credential);
+        const marketplaces = parseList(cmdOpts.marketplace);
+        if (cmdOpts.all || cmdOpts.everywhere) {
+            const spinner = opts.json ? null : ora("Delegating publish plan to sh1pt skills publish...").start();
+            try {
+                if (Object.keys(credentials).length && !opts.json) {
+                    spinner?.warn("Credential hints are ignored here; pass credentials to sh1pt via environment variables.");
+                }
+                const listings = cmdOpts.all || !slug
+                    ? (await client.get("/api/skills/my")).listings
+                    : [(await client.get(`/api/skills/${slug}`)).listing];
+                const results = listings.map((listing) => runSh1ptSkillsPublish(listing, {
+                    all: Boolean(cmdOpts.all || !marketplaces?.length),
+                    dryRun: cmdOpts.dryRun !== false,
+                    marketplaces,
+                }));
+                spinner?.stop();
+                if (opts.json) {
+                    console.log(JSON.stringify({ dry_run: cmdOpts.dryRun !== false, results }, null, 2));
+                }
+                else {
+                    for (const result of results) {
+                        console.log(`\n${result.slug}`);
+                        console.log(`  sh1pt: ${result.exitCode === 0 ? "ok" : "failed"}`);
+                        console.log(`  Command: ${result.command}`);
+                        if (result.stdout.trim())
+                            console.log(result.stdout.trim());
+                        if (result.stderr.trim())
+                            console.error(result.stderr.trim());
+                    }
+                }
+            }
+            catch (err) {
+                spinner?.fail("Failed");
+                handleError(err, opts);
+            }
+            return;
+        }
+        if (!slug) {
+            handleError(new Error("Missing skill slug. Use `ugig skills publish <slug>` or `ugig skills publish --all --dry-run`."), opts);
+            return;
+        }
         const spinner = opts.json ? null : ora(`Publishing ${slug}...`).start();
         try {
-            const client = createClient(opts);
             const result = await client.patch(`/api/skills/${slug}`, { status: "active" });
             spinner?.stop();
             printSuccess(`Skill published: ${slug}`, opts);
@@ -315,7 +442,6 @@ export function registerSkillsCommands(program) {
             handleError(err, opts);
         }
     });
-    // (publish-all removed — listings go live on create now)
     // ── Delete listing ─────────────────────────────────────────────
     skills
         .command("delete <slug>")
