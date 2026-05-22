@@ -7,9 +7,9 @@ import { ChevronDown } from "lucide-react";
 
 const PRIMARY_NAV = [
   { href: "/feed", label: "The Lounge" },
+  { href: "/bounties", label: "Bounties" },
   { href: "/gigs", label: "Gigs (Hiring)" },
   { href: "/for-hire", label: "I will... (Looking)" },
-  { href: "/bounties", label: "Bounties" },
 ];
 
 const MORE_NAV = [
