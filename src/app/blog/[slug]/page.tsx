@@ -66,7 +66,13 @@ export default async function BlogPost({
     <>
       <Header />
       <main className="mx-auto max-w-3xl px-4 sm:px-6 py-12 text-foreground">
-        <p className="text-sm text-muted-foreground">
+        <a
+          href="/blog"
+          className="inline-flex items-center text-sm text-muted-foreground hover:text-primary"
+        >
+          ← Back to posts
+        </a>
+        <p className="mt-4 text-sm text-muted-foreground">
           {post.published_at.slice(0, 10)}
         </p>
         <h1 className="mt-2 text-4xl font-extrabold">{post.title}</h1>
