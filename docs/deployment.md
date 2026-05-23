@@ -224,6 +224,13 @@ Railway auto-detects Next.js, but verify:
 | `STRIPE_PRO_PRICE_ID` | Pro plan price ID | Stripe Products |
 | `NEXT_PUBLIC_JITSI_DOMAIN` | Jitsi server domain | Use `meet.jit.si` or self-hosted |
 | `NEXT_PUBLIC_APP_URL` | Your app URL | Your domain |
+| `CRON_SECRET` | Secret for protected cron endpoints | Generate a random secret |
+| `COINPAY_API_KEY` | CoinPayPortal API key | CoinPayPortal business settings |
+| `COINPAY_MERCHANT_ID` | CoinPayPortal business ID | CoinPayPortal business settings |
+| `COINPAY_FUNDING_WEBHOOK_SECRET` | CoinPay webhook signing secret | CoinPayPortal webhook settings |
+| `COINPAY_PAYMENT_DAEMON_ENABLED` | Enable server-side CoinPay payment polling fallback | Optional, defaults enabled unless set to `false` |
+| `COINPAY_PAYMENT_SYNC_INTERVAL_MS` | CoinPay daemon interval in milliseconds | Optional, defaults to `60000` |
+| `COINPAY_PAYMENT_SYNC_LIMIT` | Max pending CoinPay records checked per daemon pass | Optional, defaults to `25` |
 
 ---
 

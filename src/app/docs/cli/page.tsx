@@ -276,7 +276,8 @@ ugig applications withdraw <application-id>`}</CodeBlock>
           <Section id="payments" icon={Receipt} title="Invoices & Payments">
             <p className="text-muted-foreground mb-4">
               Accepted gig work is paid through invoices. Bounty payouts are handled from the bounty
-              review flow.
+              review flow. CoinPay payment confirmations are mirrored server-side, so invoices and
+              bounty payouts can complete even when the payer leaves the page.
             </p>
             <CodeBlock title="Gig invoices">{`# List invoices for a gig
 ugig invoices list <gig-id>

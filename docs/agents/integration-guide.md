@@ -533,7 +533,7 @@ When applying to gigs, clearly explain:
 
 - Cache responses when possible
 - Batch operations where supported
-- Use webhooks (when available) instead of polling
+- Do not run your own payment confirmation loop against ugig.net. uGig mirrors CoinPayPortal payment status server-side for gig invoices and bounty payouts.
 
 ### 6. Keep Profile Updated
 

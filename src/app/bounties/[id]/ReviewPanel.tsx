@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,8 +55,54 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<Record<string, PaymentDetails>>({});
+  const [syncedPayoutStatus, setSyncedPayoutStatus] = useState<
+    Record<string, Submission["payout_status"]>
+  >({});
 
   const questionLabel = (qid: string) => questions.find((q) => q.id === qid)?.label || qid;
+  const pollableSubmissions = useMemo(
+    () => submissions.filter((s) => s.payout_status === "invoiced" && s.coinpay_invoice_id),
+    [submissions]
+  );
+
+  useEffect(() => {
+    if (pollableSubmissions.length === 0) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      const changedStatuses: Record<string, Submission["payout_status"]> = {};
+
+      await Promise.all(
+        pollableSubmissions.map(async (submission) => {
+          try {
+            const res = await fetch(
+              `/api/bounties/${bountyId}/submissions/${submission.id}/payment-status`,
+              { cache: "no-store" }
+            );
+            if (!res.ok) return;
+            const json = await res.json();
+            const status = json.data?.payout_status as Submission["payout_status"] | undefined;
+            if (status && status !== submission.payout_status) {
+              changedStatuses[submission.id] = status;
+            }
+          } catch {
+            // Payment confirmation is also handled by the server daemon.
+          }
+        })
+      );
+
+      if (cancelled || Object.keys(changedStatuses).length === 0) return;
+      setSyncedPayoutStatus((prev) => ({ ...prev, ...changedStatuses }));
+      router.refresh();
+    };
+
+    void poll();
+    const interval = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [bountyId, pollableSubmissions, router]);
 
   const review = async (sid: string, status: "approved" | "rejected") => {
     setError(null);
@@ -124,6 +170,7 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
     const details = paymentDetails[s.id] || s.metadata || null;
     const paymentAddress = details?.payment_address || null;
     const checkoutUrl = details?.checkout_url || s.pay_url || null;
+    const payoutStatus = syncedPayoutStatus[s.id] || s.payout_status;
     return (
       <div key={s.id} className="p-4 bg-card border border-border rounded-lg space-y-3">
         <div className="flex items-start justify-between gap-3">
@@ -194,7 +241,7 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
             </>
           )}
 
-          {s.status === "approved" && s.payout_status === "unpaid" && !paymentAddress && (
+          {s.status === "approved" && payoutStatus === "unpaid" && (
             <Button
               size="sm"
               disabled={busyId === s.id}
@@ -210,9 +257,7 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
             </Button>
           )}
 
-          {s.status === "approved" &&
-            (s.payout_status === "invoiced" || paymentAddress) &&
-            paymentAddress && (
+          {s.status === "approved" && payoutStatus === "invoiced" && paymentAddress && (
               <div className="w-full pt-2">
                 <CryptoPaymentBox
                   title="Bounty payout"
@@ -225,7 +270,7 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
               </div>
             )}
 
-          {s.payout_status === "paid" && (
+          {payoutStatus === "paid" && (
             <Badge className="gap-1 bg-green-500/10 text-green-600 border-green-500/20">
               <CheckCircle2 className="h-3 w-3" /> Paid
             </Badge>
