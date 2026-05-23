@@ -12,7 +12,6 @@ import {
   FileText,
   DollarSign,
 } from "lucide-react";
-import { PayApplicantButton } from "./PayApplicantButton";
 
 export const metadata = {
   title: "Invoices | ugig.net",
@@ -44,21 +43,6 @@ interface InvoiceRow {
   gig: { id: string; title: string } | null;
   worker: Counterparty | null;
   poster: Counterparty | null;
-}
-
-interface AcceptedAppRow {
-  id: string;
-  gig_id: string;
-  applicant_id: string;
-  proposed_rate: number | null;
-  created_at: string;
-  gig: {
-    id: string;
-    title: string;
-    budget_min: number | null;
-    budget_max: number | null;
-  } | null;
-  applicant: Counterparty | null;
 }
 
 function statusBadge(status: InvoiceRow["status"]) {
@@ -125,35 +109,6 @@ export default async function InvoicesDashboardPage({
   const invoices = (invoiceData || []) as InvoiceRow[];
   const sent = invoices.filter((i) => i.worker_id === user.id);
   const received = invoices.filter((i) => i.poster_id === user.id);
-
-  // Find accepted applications on the user's own gigs that don't yet have an invoice
-  // so the poster can initiate payment directly.
-  const { data: posterGigs } = await supabase
-    .from("gigs")
-    .select("id")
-    .eq("poster_id", user.id);
-  const gigIds = (posterGigs || []).map((g) => g.id);
-
-  let acceptedNeedingInvoice: AcceptedAppRow[] = [];
-  if (gigIds.length > 0) {
-    const { data: acceptedApps } = await supabase
-      .from("applications")
-      .select(
-        `
-        id, gig_id, applicant_id, proposed_rate, created_at,
-        gig:gigs (id, title, budget_min, budget_max),
-        applicant:profiles!applicant_id (id, username, full_name, avatar_url)
-      `
-      )
-      .in("gig_id", gigIds)
-      .eq("status", "accepted")
-      .order("created_at", { ascending: false });
-
-    const invoicedAppIds = new Set(received.map((i) => i.application_id));
-    acceptedNeedingInvoice = ((acceptedApps || []) as unknown as AcceptedAppRow[]).filter(
-      (a) => !invoicedAppIds.has(a.id)
-    );
-  }
 
   const totalOwed = received
     .filter((i) => i.status === "sent")
@@ -224,58 +179,6 @@ export default async function InvoicesDashboardPage({
             Invoices Sent ({sent.length})
           </Link>
         </div>
-
-        {/* Accepted applicants without an invoice — only shown on Received tab */}
-        {tab === "received" && acceptedNeedingInvoice.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-semibold mb-2">
-              Accepted applicants awaiting payment
-            </h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              These workers were accepted but no invoice exists yet. Generate a payment link
-              now and they&apos;ll be notified.
-            </p>
-            <div className="space-y-3">
-              {acceptedNeedingInvoice.map((app) => {
-                const suggested =
-                  app.proposed_rate ||
-                  app.gig?.budget_min ||
-                  app.gig?.budget_max ||
-                  null;
-                return (
-                  <div
-                    key={app.id}
-                    className="p-4 bg-card rounded-lg border border-border shadow-sm space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-medium">{counterpartyName(app.applicant)}</p>
-                        <Link
-                          href={`/gigs/${app.gig_id}`}
-                          className="text-sm text-muted-foreground hover:text-primary inline-flex items-center gap-1"
-                        >
-                          {app.gig?.title || "Gig"}
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </div>
-                      {suggested && (
-                        <div className="text-sm text-muted-foreground">
-                          Suggested: ${suggested}
-                        </div>
-                      )}
-                    </div>
-                    <PayApplicantButton
-                      gigId={app.gig_id}
-                      applicationId={app.id}
-                      suggestedAmount={suggested}
-                      workerName={counterpartyName(app.applicant)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Invoice list */}
         <div>
