@@ -99,6 +99,7 @@ export default function RootLayout({
           data-key="Zm2tXU5XNvv8dLpoexiurQ"
           strategy="afterInteractive"
         />
+              <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
       </body>
     </html>
   );
