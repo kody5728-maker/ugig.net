@@ -29,6 +29,38 @@ async function loadCode() {
   return null;
 }
 
+function copyWithTextarea(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the DOM fallback for blocked clipboard writes.
+  }
+
+  return copyWithTextarea(text);
+}
+
 export default function ReferralsPage() {
   const [referralLink, setReferralLink] = useState("");
   const [referralCode, setReferralCode] = useState("");
@@ -40,6 +72,7 @@ export default function ReferralsPage() {
   });
   const [emails, setEmails] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -63,7 +96,15 @@ export default function ReferralsPage() {
   }, []);
 
   const copyLink = async () => {
-    await navigator.clipboard.writeText(referralLink);
+    setCopyError(null);
+
+    const copiedLink = await copyText(referralLink);
+    if (!copiedLink) {
+      setCopied(false);
+      setCopyError("Copy failed. Select the link and copy it manually.");
+      return;
+    }
+
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -84,18 +125,21 @@ export default function ReferralsPage() {
       return;
     }
 
-    const res = await fetch("/api/referrals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ emails: emailList }),
-    });
+    try {
+      const res = await fetch("/api/referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails: emailList }),
+      });
 
-    const data = await res.json();
+      const data = await res.json().catch(() => null);
 
-    if (!res.ok) {
-      setError(data.error);
-    } else {
-      setSuccess(data.message);
+      if (!res.ok) {
+        setError(data?.error || "Failed to send invites");
+        return;
+      }
+
+      setSuccess(data?.message || "Invites sent");
       setEmails("");
       loadReferrals().then((d) => {
         if (d) {
@@ -103,8 +147,11 @@ export default function ReferralsPage() {
           setStats(d.stats);
         }
       });
+    } catch {
+      setError("Failed to send invites");
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const statusBadge = (status: string) => {
@@ -125,7 +172,8 @@ export default function ReferralsPage() {
       <div>
         <h1 className="text-2xl font-bold">Invite Friends</h1>
         <p className="text-muted-foreground mt-1">
-          Share your referral link and earn ⚡ 25 sats for each friend who signs up. They get 25 sats too!
+          Share your referral link and earn ⚡ 25 sats for each friend who signs up. They get 25
+          sats too!
         </p>
       </div>
 
@@ -172,6 +220,7 @@ export default function ReferralsPage() {
             {copied ? "Copied!" : "Copy"}
           </button>
         </div>
+        {copyError && <p className="text-sm text-destructive">{copyError}</p>}
         <p className="text-xs text-muted-foreground">
           Your referral code: <span className="font-mono font-medium">{referralCode}</span>
         </p>
@@ -187,12 +236,8 @@ export default function ReferralsPage() {
           rows={3}
           className="w-full bg-muted/50 border border-border rounded-md px-3 py-2 text-sm resize-none"
         />
-        {error && (
-          <p className="text-sm text-destructive">{error}</p>
-        )}
-        {success && (
-          <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
-        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
         <button
           onClick={sendInvites}
           disabled={sending}
@@ -232,9 +277,7 @@ export default function ReferralsPage() {
                       {new Date(r.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {r.registered_at
-                        ? new Date(r.registered_at).toLocaleDateString()
-                        : "—"}
+                      {r.registered_at ? new Date(r.registered_at).toLocaleDateString() : "—"}
                     </td>
                   </tr>
                 ))}
@@ -243,6 +286,6 @@ export default function ReferralsPage() {
           </div>
         )}
       </div>
-        </div>
+    </div>
   );
 }
