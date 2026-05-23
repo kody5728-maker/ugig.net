@@ -225,7 +225,10 @@ export default function NewOfferClient() {
 
           <div className="space-y-2">
             <Label htmlFor="category">Category</Label>
-            <Select value={form.category} onValueChange={(v) => updateForm("category", v)}>
+            <Select
+              value={form.category || "none"}
+              onValueChange={(v) => updateForm("category", v === "none" ? "" : v)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select..." />
               </SelectTrigger>
