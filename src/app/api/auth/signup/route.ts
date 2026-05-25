@@ -112,10 +112,15 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
-      console.error("Signup auth error:", error.message, error.status, error.code);
       if (isAlreadyRegisteredAuthError(error)) {
+        console.log("[signup] Existing email hit signup; attempting confirmation resend:", {
+          email,
+          status: error.status,
+          code: error.code,
+        });
         const resend = await resendExistingUserConfirmationEmail({ supabase: svc, email, appUrl });
         if (resend.sent) {
+          console.log("[signup] Existing email confirmation resend sent:", { email });
           return NextResponse.json({
             message: "Check your email to confirm your account",
             resent: true,
@@ -123,6 +128,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      console.error("Signup auth error:", error.message, error.status, error.code);
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 

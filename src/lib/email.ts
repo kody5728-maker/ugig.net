@@ -44,6 +44,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
   }
 
   try {
+    console.log("[email] Sending email:", { to, subject, from: FROM_EMAIL });
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to,
@@ -53,13 +54,19 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
     });
 
     if (error) {
-      console.error("Failed to send email:", error);
+      console.error("[email] Failed to send email:", { to, subject, error });
       return { success: false, error };
     }
 
+    console.log("[email] Email accepted by provider:", {
+      to,
+      subject,
+      id: data?.id ?? null,
+    });
+
     return { success: true, data };
   } catch (error) {
-    console.error("Email send error:", error);
+    console.error("[email] Email send error:", { to, subject, error });
     return { success: false, error };
   }
 }

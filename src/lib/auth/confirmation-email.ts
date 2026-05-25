@@ -66,6 +66,12 @@ export async function sendGeneratedSignupConfirmationEmail({
   const confirmUrl = `${appUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=${type}${nextParam}`;
   const confirmation = signupConfirmationEmail({ name, confirmUrl });
 
+  console.log("[auth] Sending confirmation email:", {
+    email,
+    type,
+    next: next ?? null,
+  });
+
   return sendEmail({
     to: email,
     subject: confirmation.subject,
@@ -85,8 +91,17 @@ export async function resendExistingUserConfirmationEmail({
 }): Promise<{ sent: boolean; skipped?: boolean; error?: unknown }> {
   const existingUser = await findAuthUserByEmail(supabase, email);
   if (!existingUser || existingUser.email_confirmed_at) {
+    console.log("[auth] Confirmation resend skipped:", {
+      email,
+      reason: existingUser ? "already_confirmed" : "user_not_found",
+    });
     return { sent: false, skipped: true };
   }
+
+  console.log("[auth] Generating confirmation resend link:", {
+    email,
+    userId: existingUser.id,
+  });
 
   const { data, error } = await supabase.auth.admin.generateLink({
     type: "magiclink",
@@ -119,6 +134,8 @@ export async function resendExistingUserConfirmationEmail({
     console.error("Confirmation email delivery failed:", result);
     return { sent: false, error: result };
   }
+
+  console.log("[auth] Confirmation resend sent:", { email, userId: existingUser.id });
 
   return { sent: true };
 }
