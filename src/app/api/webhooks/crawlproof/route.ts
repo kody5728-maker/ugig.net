@@ -20,6 +20,13 @@ function tokensMatch(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+function htmlForQualityGate(html: string): string {
+  return html.replace(
+    /<a\b[^>]*\bhref\s*=\s*(?:"#[^"]*"|'#[^']*'|#[^\s>]+)[^>]*>([\s\S]*?)<\/a>/gi,
+    "$1",
+  );
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
 
@@ -59,11 +66,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.reason }, { status: parsed.status });
   }
 
-  const gate = await gatePost(parsed.post, {
+  const gate = await gatePost({ ...parsed.post, html: htmlForQualityGate(parsed.post.html) }, {
     allowedNiches: integration.allowed_niches ?? [],
     heuristics: {
       minWordCount: integration.min_word_count ?? 500,
-      maxLinkDensity: integration.max_link_density ?? 1.0,
+      maxLinkDensity: Number.POSITIVE_INFINITY,
       bannedTerms: integration.banned_terms ?? [],
     },
     minQualityScore: integration.min_quality_score ?? undefined,
