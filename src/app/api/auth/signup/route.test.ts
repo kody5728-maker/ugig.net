@@ -32,6 +32,7 @@ vi.mock("@/lib/email", () => ({
 }));
 
 const mockGenerateLink = vi.fn();
+const mockListUsers = vi.fn();
 const mockActivityInsert = vi.fn();
 const mockCreateClient = vi.fn();
 const mockCreateServiceClient = vi.fn();
@@ -100,6 +101,7 @@ describe("POST /api/auth/signup", () => {
       auth: {
         admin: {
           generateLink: mockGenerateLink,
+          listUsers: mockListUsers,
         },
       },
       from: vi.fn((table: string) => {
@@ -134,6 +136,18 @@ describe("POST /api/auth/signup", () => {
           insert: vi.fn().mockResolvedValue({ data: null, error: null }),
         };
       }),
+    });
+    mockListUsers.mockResolvedValue({
+      data: {
+        users: [
+          {
+            email: "new-user@example.com",
+            email_confirmed_at: null,
+            user_metadata: { username: "newuser" },
+          },
+        ],
+      },
+      error: null,
     });
   });
 
@@ -189,6 +203,52 @@ describe("POST /api/auth/signup", () => {
       expect.objectContaining({
         to: "new-user@example.com",
         subject: "Confirm your ugig.net account",
+      })
+    );
+  });
+
+  it("resends confirmation for an already registered unconfirmed email", async () => {
+    const { sendEmail } = await import("@/lib/email");
+    mockGenerateLink
+      .mockResolvedValueOnce({
+        data: {},
+        error: {
+          message: "A user with this email address has already been registered",
+          status: 400,
+          code: "email_exists",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          user: { id: "existing-user-id" },
+          properties: { hashed_token: "resend-token" },
+        },
+        error: null,
+      });
+
+    const res = await POST(
+      makeRequest({
+        email: "new-user@example.com",
+        password: "Goodpass1",
+        username: "unusednewuser",
+        account_type: "human",
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resent).toBe(true);
+    expect(mockGenerateLink).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: "magiclink",
+        email: "new-user@example.com",
+      })
+    );
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "new-user@example.com",
+        html: "https://ugig.net/auth/confirm?token_hash=resend-token&type=magiclink&next=%2Fdashboard",
       })
     );
   });

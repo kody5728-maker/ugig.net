@@ -84,7 +84,7 @@ describe("POST /api/auth/resend-confirmation", () => {
     expect(mockSendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "test@example.com",
-        html: "https://ugig.net/auth/confirm?token_hash=resend-token&type=magiclink&next=/dashboard",
+        html: "https://ugig.net/auth/confirm?token_hash=resend-token&type=magiclink&next=%2Fdashboard",
       })
     );
   });

@@ -3,10 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { signupSchema } from "@/lib/validations";
 import { checkRateLimit, rateLimitExceeded, getRateLimitIdentifier } from "@/lib/rate-limit";
-import { sendEmail, signupConfirmationEmail } from "@/lib/email";
 import { checkSpam, checkEmail } from "@/lib/spam-check";
 import { generateAndStoreDid } from "@/lib/auth/did";
 import { detectSuspiciousAccountType } from "@/lib/account-type-detection";
+import {
+  isAlreadyRegisteredAuthError,
+  resendExistingUserConfirmationEmail,
+  sendGeneratedSignupConfirmationEmail,
+} from "@/lib/auth/confirmation-email";
 
 export async function POST(request: NextRequest) {
   try {
@@ -109,6 +113,16 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error("Signup auth error:", error.message, error.status, error.code);
+      if (isAlreadyRegisteredAuthError(error)) {
+        const resend = await resendExistingUserConfirmationEmail({ supabase: svc, email, appUrl });
+        if (resend.sent) {
+          return NextResponse.json({
+            message: "Check your email to confirm your account",
+            resent: true,
+          });
+        }
+      }
+
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
@@ -118,8 +132,6 @@ export async function POST(request: NextRequest) {
       console.error("Signup link generation returned no user or token");
       return NextResponse.json({ error: "Failed to create confirmation email" }, { status: 500 });
     }
-
-    const confirmUrl = `${appUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash)}&type=signup`;
 
     // Handle referral tracking
     if (ref && user) {
@@ -222,15 +234,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const confirmation = signupConfirmationEmail({
+    const emailResult = await sendGeneratedSignupConfirmationEmail({
+      email,
       name: account_type === "agent" && agent_name ? agent_name : username,
-      confirmUrl,
-    });
-    const emailResult = await sendEmail({
-      to: email,
-      subject: confirmation.subject,
-      html: confirmation.html,
-      text: confirmation.text,
+      appUrl,
+      tokenHash,
+      type: "signup",
     });
 
     if (!emailResult.success || "skipped" in emailResult) {
