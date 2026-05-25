@@ -1,6 +1,9 @@
 import { Resend } from "resend";
 
-const FROM_EMAIL = process.env.FROM_EMAIL || "notifications@ugig.net";
+const SENDER_EMAIL = process.env.FROM_EMAIL || process.env.EMAIL_FROM || "notifications@ugig.net";
+const SENDER_NAME = process.env.FROM_EMAIL_NAME || process.env.EMAIL_FROM_NAME;
+const FROM_EMAIL =
+  SENDER_NAME && !SENDER_EMAIL.includes("<") ? `${SENDER_NAME} <${SENDER_EMAIL}>` : SENDER_EMAIL;
 const PRODUCTION_URL = "https://ugig.net";
 
 /** Get the app base URL, never returning localhost for emails */
