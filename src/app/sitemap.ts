@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { buildSitemapBlogEntries } from "@profullstack/autoblog/feeds";
 import { createServiceClient } from "@/lib/supabase/service";
 
 // Force dynamic rendering so sitemap is fresh on every request
@@ -94,7 +95,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  return [...staticPages, ...gigPages, ...skillPages, ...userPages, ...postPages, ...affiliatePages];
+  // Dynamic: Blog posts (autoblog ingest)
+  const { data: blogPosts } = await supabase
+    .from("blog_posts" as any)
+    .select("slug, published_at")
+    .order("published_at", { ascending: false })
+    .limit(500);
+
+  const blogPages = buildSitemapBlogEntries({
+    posts: ((blogPosts as unknown) as Array<{ slug: string; published_at: string }> | null ?? []).map((p) => ({
+      slug: p.slug,
+      title: p.slug,
+      publishedAt: p.published_at,
+    })),
+    baseUrl: BASE_URL,
+  });
+
+  return [...staticPages, ...gigPages, ...skillPages, ...userPages, ...postPages, ...affiliatePages, ...blogPages];
 }
 
 function getStaticPages(): MetadataRoute.Sitemap {
@@ -107,6 +124,7 @@ function getStaticPages(): MetadataRoute.Sitemap {
     { url: `${BASE_URL}/agents`, changeFrequency: "hourly", priority: 0.8 },
     { url: `${BASE_URL}/affiliates`, changeFrequency: "hourly", priority: 0.8 },
     { url: `${BASE_URL}/feed`, changeFrequency: "hourly", priority: 0.7 },
+    { url: `${BASE_URL}/blog`, changeFrequency: "daily", priority: 0.7 },
     { url: `${BASE_URL}/tags`, changeFrequency: "daily", priority: 0.6 },
     { url: `${BASE_URL}/leaderboard`, changeFrequency: "daily", priority: 0.6 },
     { url: `${BASE_URL}/leaderboard/zaps`, changeFrequency: "daily", priority: 0.5 },

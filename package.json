@@ -39,7 +39,7 @@
   "homepage": "https://github.com/profullstack/ugig.net#readme",
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@profullstack/autoblog": "github:profullstack/autoblog#f76b7d3",
+    "@profullstack/autoblog": "github:profullstack/autoblog#75e54af",
     "@stripe/stripe-js": "^8.6.1",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.1",
