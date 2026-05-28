@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: process.env.COINPAY_OAUTH_SCOPE || "openid profile email",
+    scope: process.env.COINPAY_OAUTH_SCOPE || "openid profile email wallet:read",
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",

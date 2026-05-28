@@ -528,16 +528,34 @@ export async function getCoinpayGlobalWalletTokens(
 ): Promise<CoinPayGlobalWallet[]> {
   const apiKey = process.env.COINPAY_API_KEY;
   const businessId = options.business_id || process.env.COINPAY_MERCHANT_ID;
-  const bearerToken = options.access_token || apiKey;
 
-  if (!bearerToken) {
+  // OAuth access tokens (per-user) are validated by /api/oauth/userinfo,
+  // which returns the merchant's global merchant_wallets under the
+  // `wallets` claim when the wallet:read scope was granted. The /api/wallets
+  // and /api/get-tokens endpoints use a different verifier (merchant-login
+  // JWT or business API key) and reject OAuth access tokens.
+  if (options.access_token) {
+    const response = await fetch(`${COINPAY_API_URL}/oauth/userinfo`, {
+      headers: { Authorization: `Bearer ${options.access_token}` },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `CoinPay userinfo failed: ${response.status}${text ? ` ${text.slice(0, 120)}` : ""}`
+      );
+    }
+
+    const payload = await response.json();
+    return normalizeGlobalWallets(payload?.wallets);
+  }
+
+  if (!apiKey) {
     throw new Error("CoinPayPortal credentials not configured");
   }
 
-  const urls = [
-    new URL(`${COINPAY_API_URL}/get-tokens`),
-    new URL(`${COINPAY_API_URL}/wallets`),
-  ];
+  const urls = [new URL(`${COINPAY_API_URL}/get-tokens`)];
   if (businessId) {
     urls.push(new URL(`${COINPAY_API_URL}/businesses/${businessId}`));
   }
@@ -552,9 +570,7 @@ export async function getCoinpayGlobalWalletTokens(
 
   for (const url of urls) {
     const response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${bearerToken}`,
-      },
+      headers: { Authorization: `Bearer ${apiKey}` },
       cache: "no-store",
     });
 
