@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+function parsePaginationParam(
+  value: string | null,
+  defaultValue: number,
+  min: number,
+  max: number
+) {
+  const parsed = Number(value && value.trim() !== "" ? value : defaultValue);
+  const finiteValue = Number.isFinite(parsed) ? parsed : defaultValue;
+  return Math.min(Math.max(Math.trunc(finiteValue), min), max);
+}
+
 // GET /api/users/:username/feed - Public posts + comments by user
 export async function GET(
   request: NextRequest,
@@ -9,8 +20,8 @@ export async function GET(
   try {
     const { username } = await params;
     const searchParams = request.nextUrl.searchParams;
-    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const limit = parsePaginationParam(searchParams.get("limit"), 20, 1, 50);
+    const offset = parsePaginationParam(searchParams.get("offset"), 0, 0, 100_000);
 
     const supabase = await createClient();
 
