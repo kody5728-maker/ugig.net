@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/coinpayportal", () => ({
   createPayment: vi.fn(),
-  resolveSupportedPaymentCurrency: vi.fn(),
+  getCoinpayGlobalWalletTokens: vi.fn(),
+  preferredCoinToPaymentCurrency: vi.fn(),
+}));
+
+vi.mock("@/lib/coinpay-oauth", () => ({
+  getConnectedCoinpayAccessToken: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/get-user", () => ({
@@ -11,7 +16,10 @@ vi.mock("@/lib/auth/get-user", () => ({
 
 import { POST } from "./route";
 import { getAuthContext } from "@/lib/auth/get-user";
-import { createPayment, resolveSupportedPaymentCurrency } from "@/lib/coinpayportal";
+import { createPayment, getCoinpayGlobalWalletTokens, preferredCoinToPaymentCurrency } from "@/lib/coinpayportal";
+import { getConnectedCoinpayAccessToken } from "@/lib/coinpay-oauth";
+
+const SUBMITTER_SOL_WALLET = "SUBmtr1111111111111111111111111111111111111";
 
 const BOUNTY_ID = "8489a861-0999-4107-afca-2592021ac338";
 const SUBMISSION_ID = "d2317730-c56a-49e9-a6e4-dc469b7605f7";
@@ -36,7 +44,15 @@ function chain(result: { data: any; error?: any }) {
 }
 
 describe("POST /api/bounties/[id]/submissions/[sid]/pay", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // By default the submitter has CoinPay connected with a SOL wallet.
+    (getConnectedCoinpayAccessToken as any).mockResolvedValue("submitter-token");
+    (getCoinpayGlobalWalletTokens as any).mockResolvedValue([
+      { currency: "sol", cryptocurrency: "SOL", address: SUBMITTER_SOL_WALLET, label: "My SOL" },
+    ]);
+    (preferredCoinToPaymentCurrency as any).mockReturnValue("sol");
+  });
 
   it("persists in-app payment metadata for an approved bounty submission", async () => {
     const bountyChain = chain({
@@ -82,7 +98,6 @@ describe("POST /api/bounties/[id]/submissions/[sid]/pay", () => {
       user: { id: CREATOR_ID },
       supabase,
     });
-    (resolveSupportedPaymentCurrency as any).mockResolvedValue("sol");
     (createPayment as any).mockResolvedValue({
       success: true,
       payment_id: "cp-pay-bounty-1",
@@ -98,6 +113,10 @@ describe("POST /api/bounties/[id]/submissions/[sid]/pay", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.payment_address).toBe("So11111111111111111111111111111111111111112");
+    // The payout must forward to the submitter's wallet, not the platform.
+    expect(createPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ merchant_wallet_address: SUBMITTER_SOL_WALLET, currency: "sol" })
+    );
     expect(updatePayload).toMatchObject({
       payout_status: "invoiced",
       coinpay_invoice_id: "cp-pay-bounty-1",
@@ -109,10 +128,50 @@ describe("POST /api/bounties/[id]/submissions/[sid]/pay", () => {
         payment_address: "So11111111111111111111111111111111111111112",
         amount_crypto: 0.5,
         payment_currency: "sol",
+        merchant_wallet_address: SUBMITTER_SOL_WALLET,
         checkout_url: "https://coinpayportal.com/pay/cp-pay-bounty-1",
         expires_at: "2026-05-23T12:00:00Z",
       }),
     });
+  });
+
+  it("refuses to pay when the submitter has not connected a CoinPay wallet", async () => {
+    const bountyChain = chain({
+      data: {
+        id: BOUNTY_ID,
+        creator_id: CREATOR_ID,
+        title: "Test bounty",
+        payout_usd: 25,
+        payment_coin: "SOL",
+      },
+    });
+    const submissionChain = chain({
+      data: {
+        id: SUBMISSION_ID,
+        submitter_id: SUBMITTER_ID,
+        status: "approved",
+        payout_status: "unpaid",
+        pay_url: null,
+        coinpay_invoice_id: null,
+        metadata: {},
+      },
+    });
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === "bounties") return bountyChain;
+        if (table === "bounty_submissions") return submissionChain;
+        return chain({ data: null });
+      }),
+    };
+    (getAuthContext as any).mockResolvedValue({ user: { id: CREATOR_ID }, supabase });
+    (getConnectedCoinpayAccessToken as any).mockResolvedValue(null);
+
+    const res = await POST(req(), params);
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.setup_required).toBe(true);
+    expect(createPayment).not.toHaveBeenCalled();
   });
 
   it("returns existing payment metadata without creating a duplicate payment", async () => {
@@ -199,7 +258,6 @@ describe("POST /api/bounties/[id]/submissions/[sid]/pay", () => {
     };
 
     (getAuthContext as any).mockResolvedValue({ user: { id: CREATOR_ID }, supabase });
-    (resolveSupportedPaymentCurrency as any).mockResolvedValue("sol");
     (createPayment as any).mockResolvedValue({
       success: true,
       payment_id: "cp-pay-bounty-fresh",

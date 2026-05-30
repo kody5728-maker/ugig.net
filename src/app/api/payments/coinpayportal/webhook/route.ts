@@ -334,6 +334,7 @@ async function handlePaymentForwarded(
   // event hasn't already done so — instead of downgrading the invoice back to
   // "sent" (which previously reverted genuinely-paid invoices).
   if (await handleGigInvoicePaymentConfirmed(supabase, payload)) return;
+  if (await handleBountyPaymentConfirmed(supabase, payload)) return;
   await updateBountyPaymentMetadata(supabase, payload, "invoiced");
 }
 
@@ -389,6 +390,30 @@ async function handleBountyPaymentConfirmed(
 
   if (!existingSubmission) return false;
 
+  const existingSubMetadata = (existingSubmission.metadata || {}) as Record<string, unknown>;
+
+  // Runs on both payment.confirmed and payment.forwarded — be idempotent. If the
+  // payout is already settled, fold in any new forward proof (merchant_tx_hash
+  // arrives with the forwarded event) and skip duplicate notifications/reputation.
+  if (existingSubmission.payout_status === "paid") {
+    await (supabase as any)
+      .from("bounty_submissions")
+      .update({
+        updated_at: now,
+        metadata: {
+          ...existingSubMetadata,
+          tx_hash: paymentData.tx_hash ?? existingSubMetadata.tx_hash ?? null,
+          merchant_tx_hash:
+            paymentData.merchant_tx_hash ?? existingSubMetadata.merchant_tx_hash ?? null,
+          forwarded_at: paymentData.merchant_tx_hash ? now : existingSubMetadata.forwarded_at,
+          payment_currency: paymentData.currency ?? existingSubMetadata.payment_currency,
+          amount_crypto: paymentData.amount_crypto ?? existingSubMetadata.amount_crypto,
+        },
+      })
+      .eq("id", existingSubmission.id);
+    return true;
+  }
+
   const { data: submission } = await (supabase as any)
     .from("bounty_submissions")
     .update({
@@ -396,10 +421,11 @@ async function handleBountyPaymentConfirmed(
       paid_at: now,
       updated_at: now,
       metadata: {
-        ...((existingSubmission.metadata || {}) as Record<string, unknown>),
+        ...existingSubMetadata,
         tx_hash: paymentData.tx_hash,
         merchant_tx_hash: paymentData.merchant_tx_hash,
         paid_at: now,
+        forwarded_at: paymentData.merchant_tx_hash ? now : undefined,
         payment_currency: paymentData.currency,
         amount_crypto: paymentData.amount_crypto,
       },
