@@ -8,6 +8,7 @@ const createEscrowSchema = z.object({
   currency: z.enum(["usdc_pol", "usdc_sol", "pol", "sol", "btc", "eth", "usdc_eth", "usdt"]),
   depositor_address: z.string().min(10, "Depositor wallet address is required"),
   beneficiary_address: z.string().min(10, "Beneficiary wallet address is required"),
+  arbiter_address: z.string().min(10).optional(),
 });
 
 // GET /api/gigs/[id]/escrow - Get escrow status for a gig
@@ -70,7 +71,7 @@ export async function POST(
       );
     }
 
-    const { application_id, currency, depositor_address, beneficiary_address } = validationResult.data;
+    const { application_id, currency, depositor_address, beneficiary_address, arbiter_address } = validationResult.data;
 
     // Get gig — must be poster
     const { data: gig } = await supabase
@@ -161,6 +162,7 @@ export async function POST(
       beneficiary_email: `${workerProfile?.username || application.applicant_id}@ugig.net`,
       depositor_address,
       beneficiary_address,
+      arbiter_address,
       description: `Gig escrow: ${gig.title}`,
       metadata: {
         gig_id: gigId,
@@ -190,6 +192,7 @@ export async function POST(
         currency,
         platform_fee_usd: platformFee,
         platform_fee_rate: platformFeeRate,
+        arbiter_address: arbiter_address || null,
         status: "pending_payment",
         metadata: {
           payment_address: paymentAddress,

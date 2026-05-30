@@ -755,6 +755,7 @@ export interface CreateEscrowOptions {
   beneficiary_email: string;
   depositor_address: string;
   beneficiary_address: string;
+  arbiter_address?: string;
   description?: string;
   auto_release_hours?: number;
   webhook_url?: string;
@@ -817,6 +818,7 @@ export async function createEscrow(options: CreateEscrowOptions): Promise<Escrow
       beneficiary_address: options.beneficiary_address,
       depositor_email: options.depositor_email,
       beneficiary_email: options.beneficiary_email,
+      arbiter_address: options.arbiter_address,
       description: options.description,
       auto_release_hours: options.auto_release_hours,
       webhook_url: options.webhook_url || `${appUrl}/api/webhooks/coinpay`,
