@@ -143,7 +143,7 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
             payment_address: json.data.payment_address,
             amount_crypto: json.data.amount_crypto,
             payment_currency: json.data.payment_currency,
-            checkout_url: json.data.pay_url,
+            checkout_url: json.data.checkout_url ?? json.data.pay_url ?? null,
             expires_at: json.data.expires_at,
           },
         }));
@@ -241,21 +241,22 @@ export function ReviewPanel({ bountyId, payoutUsd, questions, submissions }: Rev
             </>
           )}
 
-          {s.status === "approved" && payoutStatus === "unpaid" && (
-            <Button
-              size="sm"
-              disabled={busyId === s.id}
-              onClick={() => pay(s.id)}
-              className="gap-1"
-            >
-              {busyId === s.id ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <DollarSign className="h-3 w-3" />
-              )}
-              Pay ${payoutUsd}
-            </Button>
-          )}
+          {s.status === "approved" &&
+            (payoutStatus === "unpaid" || (payoutStatus === "invoiced" && !paymentAddress)) && (
+              <Button
+                size="sm"
+                disabled={busyId === s.id}
+                onClick={() => pay(s.id)}
+                className="gap-1"
+              >
+                {busyId === s.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <DollarSign className="h-3 w-3" />
+                )}
+                {payoutStatus === "invoiced" ? "Create new payment request" : `Pay $${payoutUsd}`}
+              </Button>
+            )}
 
           {s.status === "approved" && payoutStatus === "invoiced" && paymentAddress && (
               <div className="w-full pt-2">

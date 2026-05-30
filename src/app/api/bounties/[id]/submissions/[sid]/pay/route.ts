@@ -50,14 +50,27 @@ export async function POST(
       return NextResponse.json({ error: "Only approved submissions can be paid" }, { status: 400 });
     }
 
-    // Already invoiced — return existing details
-    if (submission.coinpay_invoice_id) {
-      const metadata = (submission.metadata || {}) as Record<string, unknown>;
+    const metadata = (submission.metadata || {}) as Record<string, unknown>;
+    // Never reopen a completed payout. Old hosted-checkout rows can lack address metadata,
+    // but paid rows must stay terminal even if this endpoint is called directly.
+    if (submission.payout_status === "paid") {
+      return NextResponse.json(
+        { error: "Submission has already been paid" },
+        { status: 400 }
+      );
+    }
+
+    // Already invoiced with in-app payment details — return existing details.
+    // Older hosted-checkout invoice rows may have a CoinPay invoice id/pay_url but no address
+    // metadata; let those fall through and create a fresh in-app payment request so creators
+    // are not stuck.
+    if (submission.coinpay_invoice_id && metadata.payment_address) {
       return NextResponse.json({
         data: {
           submission_id: sid,
           coinpay_invoice_id: submission.coinpay_invoice_id,
-          pay_url: submission.pay_url,
+          pay_url: null,
+          checkout_url: metadata.checkout_url || null,
           payment_address: metadata.payment_address || null,
           payment_currency: metadata.payment_currency || null,
           amount_crypto: metadata.amount_crypto || null,
@@ -121,7 +134,7 @@ export async function POST(
       .update({
         payout_status: "invoiced",
         coinpay_invoice_id: paymentId,
-        pay_url: checkoutUrl,
+        pay_url: null,
         metadata: {
           ...existingMetadata,
           payment_address: paymentAddress,
@@ -145,7 +158,8 @@ export async function POST(
         payment_currency: responseCurrency,
         amount_crypto: amountCrypto,
         expires_at: expiresAt,
-        pay_url: checkoutUrl,
+        pay_url: null,
+        checkout_url: checkoutUrl,
       },
     });
   } catch (err) {
