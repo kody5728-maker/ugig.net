@@ -103,9 +103,11 @@ export function InvoiceButton({
   gigBudgetType,
 }: InvoiceButtonProps) {
   const isSats = coinIsSats(gigPaymentCoin);
-  // The cap applies to fixed-price gigs; hourly/per-task totals can exceed the rate.
+  // The cap applies to single-payout gigs (fixed and bounty); hourly/per-task
+  // totals can legitimately exceed the single quoted rate.
+  const bt = gigBudgetType || "fixed";
   const capAmount =
-    (gigBudgetType || "fixed") === "fixed" && budgetAmount ? budgetAmount : null;
+    (bt === "fixed" || bt === "bounty") && budgetAmount ? budgetAmount : null;
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);

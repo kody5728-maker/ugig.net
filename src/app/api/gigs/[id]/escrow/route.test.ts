@@ -12,6 +12,12 @@ vi.mock("@/lib/auth/get-user", () => ({
   getAuthContext: vi.fn(),
 }));
 
+// Pin BTC price so sats→USD is deterministic; keep isSatsCoin/satsToUsd real.
+vi.mock("@/lib/rates", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/rates")>("@/lib/rates");
+  return { ...actual, getBtcUsdRate: vi.fn().mockResolvedValue(100_000) };
+});
+
 import { GET, POST } from "./route";
 import { getAuthContext } from "@/lib/auth/get-user";
 import { createEscrow } from "@/lib/coinpayportal";
@@ -218,5 +224,77 @@ describe("POST /api/gigs/[id]/escrow", () => {
         amount_usd: 150,
       })
     );
+  });
+
+  it("escrows the USD value of a sats gig, not the raw sats as dollars", async () => {
+    // 500-sat gig: must escrow 500 sats @ $100k/BTC = $0.50, NOT $500.
+    const gig = {
+      id: GIG_ID,
+      title: "Sats Gig",
+      poster_id: POSTER_ID,
+      budget_min: 500,
+      budget_max: 500,
+      budget_type: "fixed",
+      payment_coin: "SATS",
+    };
+    const application = { id: APP_ID, applicant_id: WORKER_ID, status: "accepted", proposed_rate: 500 };
+    let inserted: any = null;
+
+    const sb = mockSupabase({
+      gigs: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: gig, error: null }),
+      },
+      applications: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: application, error: null }),
+      },
+      gig_escrows: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        not: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST116" } }),
+        insert: vi.fn((row: any) => {
+          inserted = row;
+          return {
+            select: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: { id: "local-esc-sats" }, error: null }),
+            }),
+          };
+        }),
+      },
+      profiles: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: { username: "testuser" }, error: null }),
+      },
+      notifications: { insert: vi.fn().mockResolvedValue({ error: null }) },
+    });
+
+    (getAuthContext as any).mockResolvedValue({ user: { id: POSTER_ID }, supabase: sb });
+    (createEscrow as any).mockResolvedValue({
+      success: true,
+      escrow: { id: "cp-esc-sats", escrow_address: "EscrowAddrSats", expires_at: "2026-04-01T00:00:00Z" },
+    });
+
+    const res = await POST(
+      req({
+        application_id: APP_ID,
+        currency: "sol",
+        depositor_address: DEPOSITOR_ADDR,
+        beneficiary_address: BENEFICIARY_ADDR,
+      }),
+      params
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.amount_usd).toBe(0.5);
+    expect(body.data.platform_fee_usd).toBe(0.03); // 5% of $0.50, rounded to cents
+    expect(createEscrow).toHaveBeenCalledWith(expect.objectContaining({ amount_usd: 0.5 }));
+    expect(inserted.amount_usd).toBe(0.5);
+    expect(inserted.metadata).toMatchObject({ native_unit: "sats", native_amount: 500, posting_coin: "SATS" });
   });
 });

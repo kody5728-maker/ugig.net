@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth/get-user";
 import { createEscrow, type SupportedCurrency } from "@/lib/coinpayportal";
+import { getBtcUsdRate, isSatsCoin, satsToUsd } from "@/lib/rates";
 import { z } from "zod";
 
 const createEscrowSchema = z.object({
@@ -76,7 +77,7 @@ export async function POST(
     // Get gig — must be poster
     const { data: gig } = await supabase
       .from("gigs")
-      .select("id, title, poster_id, budget_min, budget_max, budget_type")
+      .select("id, title, poster_id, budget_min, budget_max, budget_type, payment_coin")
       .eq("id", gigId)
       .single();
 
@@ -129,11 +130,34 @@ export async function POST(
       );
     }
 
-    // Determine amount: proposed_rate > budget_min > budget_max
-    const amount = application.proposed_rate || gig.budget_min || gig.budget_max;
-    if (!amount || amount <= 0) {
+    // Determine the agreed amount in the posting's NATIVE unit (sats for
+    // SATS/LN/BTC gigs, USD otherwise): proposed_rate > budget_min > budget_max.
+    const nativeAmount = application.proposed_rate ?? gig.budget_min ?? gig.budget_max;
+    if (!nativeAmount || nativeAmount <= 0) {
       return NextResponse.json(
         { error: "No payment amount set. Set a budget on the gig or bid amount on the application." },
+        { status: 400 }
+      );
+    }
+
+    // Convert to USD — the canonical amount CoinPay escrows and charges. Without
+    // this a "500 sats" gig would escrow $500 (and a $25 fee) instead of ~$0.50.
+    const isSats = isSatsCoin(gig.payment_coin);
+    const nativeUnit = isSats ? "sats" : "USD";
+    let btcUsd: number | null = null;
+    if (isSats) {
+      btcUsd = await getBtcUsdRate();
+      if (!btcUsd) {
+        return NextResponse.json(
+          { error: "Couldn't fetch the current BTC price to price this escrow. Try again shortly." },
+          { status: 503 }
+        );
+      }
+    }
+    const amount = isSats ? satsToUsd(nativeAmount, btcUsd as number) : nativeAmount;
+    if (amount <= 0) {
+      return NextResponse.json(
+        { error: "Escrow amount is too small to charge (rounds to $0.00)." },
         { status: 400 }
       );
     }
@@ -197,6 +221,10 @@ export async function POST(
         metadata: {
           payment_address: paymentAddress,
           expires_at: escrowData.expires_at,
+          posting_coin: gig.payment_coin || null,
+          native_unit: nativeUnit,
+          native_amount: nativeAmount,
+          ...(isSats ? { btc_usd_rate: btcUsd } : {}),
         },
       })
       .select()
@@ -215,7 +243,9 @@ export async function POST(
       user_id: application.applicant_id,
       type: "payment_received",
       title: "Escrow created for your gig",
-      body: `${posterProfile?.username || "The gig poster"} has set up a $${amount} escrow payment for "${gig.title}". Funds will be released when the work is complete.`,
+      body: `${posterProfile?.username || "The gig poster"} has set up a ${
+        isSats ? `${nativeAmount.toLocaleString()} sats` : `$${amount}`
+      } escrow payment for "${gig.title}". Funds will be released when the work is complete.`,
       data: {
         gig_id: gigId,
         escrow_id: escrow.id,

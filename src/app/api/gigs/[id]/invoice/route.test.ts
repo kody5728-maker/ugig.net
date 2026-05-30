@@ -476,6 +476,82 @@ describe("POST /api/gigs/[id]/invoice", () => {
     expect(createPayment).not.toHaveBeenCalled();
   });
 
+  it("caps bounty-type gigs at the agreed amount too (not just fixed)", async () => {
+    const gig = {
+      id: GIG_ID,
+      title: "Bounty Gig",
+      poster_id: POSTER_ID,
+      payment_coin: "SOL",
+      budget_type: "bounty",
+      budget_min: 1000,
+      budget_max: 1000,
+    };
+    const application = {
+      id: APP_ID,
+      applicant_id: WORKER_ID,
+      status: "accepted",
+      proposed_rate: 1000,
+    };
+
+    const sb = mockSupabase({
+      gigs: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: gig, error: null }),
+      },
+      applications: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: application, error: null }),
+      },
+    });
+    (getAuthContext as any).mockResolvedValue({ user: { id: WORKER_ID }, supabase: sb });
+
+    const res = await POST(req({ application_id: APP_ID, amount: 1_000_000 }), params);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/exceeds the agreed amount/i);
+  });
+
+  it("rejects a fixed gig with no agreed amount anywhere instead of leaving it uncapped", async () => {
+    const gig = {
+      id: GIG_ID,
+      title: "Budgetless Gig",
+      poster_id: POSTER_ID,
+      payment_coin: "SOL",
+      budget_type: "fixed",
+      budget_min: null,
+      budget_max: null,
+    };
+    const application = {
+      id: APP_ID,
+      applicant_id: WORKER_ID,
+      status: "accepted",
+      proposed_rate: null,
+    };
+
+    const sb = mockSupabase({
+      gigs: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: gig, error: null }),
+      },
+      applications: {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: application, error: null }),
+      },
+    });
+    (getAuthContext as any).mockResolvedValue({ user: { id: WORKER_ID }, supabase: sb });
+
+    const res = await POST(req({ application_id: APP_ID, amount: 5000 }), params);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/no agreed amount/i);
+  });
+
   it("denominates a sats gig's invoice in USD instead of treating sats as dollars", async () => {
     const gig = {
       id: GIG_ID,

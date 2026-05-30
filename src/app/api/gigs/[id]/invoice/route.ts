@@ -158,25 +158,39 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Stop made-up amounts: the invoice can't exceed the agreed amount for the
     // posting. The agreed amount is the accepted rate, falling back to the gig's
-    // budget. Only enforced for fixed-price gigs — hourly/per-task/per-unit
-    // totals legitimately exceed the single quoted rate.
+    // budget. Only enforced for single-payout gigs (fixed and bounty) —
+    // hourly/per-task/per-unit totals legitimately exceed the single quoted rate.
     const isSats = isSatsCoin(gig.payment_coin);
     const nativeUnit = isSats ? "sats" : "USD";
     const budgetType = gig.budget_type || "fixed";
+    const isSinglePayout = budgetType === "fixed" || budgetType === "bounty";
     const agreedCap =
       application.proposed_rate ?? gig.budget_max ?? gig.budget_min ?? null;
+    const fmtNative = (n: number) =>
+      isSats ? `${n.toLocaleString()} sats` : `$${n.toFixed(2)}`;
 
-    if (budgetType === "fixed" && agreedCap != null && nativeTotal > agreedCap + 1e-6) {
-      const fmt = (n: number) =>
-        isSats ? `${n.toLocaleString()} sats` : `$${n.toFixed(2)}`;
-      return NextResponse.json(
-        {
-          error: `Invoice total (${fmt(nativeTotal)}) exceeds the agreed amount for this gig (${fmt(
-            agreedCap
-          )}).`,
-        },
-        { status: 400 }
-      );
+    if (isSinglePayout) {
+      // A single-payout gig with no agreed amount anywhere is a hard stop, not
+      // an uncapped invoice — otherwise the cap silently doesn't apply.
+      if (agreedCap == null) {
+        return NextResponse.json(
+          {
+            error:
+              "This gig has no agreed amount yet. Set a budget on the gig or accept a proposed rate before invoicing.",
+          },
+          { status: 400 }
+        );
+      }
+      if (nativeTotal > agreedCap + 1e-6) {
+        return NextResponse.json(
+          {
+            error: `Invoice total (${fmtNative(nativeTotal)}) exceeds the agreed amount for this gig (${fmtNative(
+              agreedCap
+            )}).`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Convert the native total to USD — the canonical amount CoinPay charges.
@@ -195,6 +209,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const toUsd = (nativeAmount: number) =>
       isSats ? satsToUsd(nativeAmount, btcUsd as number) : nativeAmount;
     const total = toUsd(nativeTotal);
+
+    // A positive sats amount that rounds to $0.00 would create a free invoice.
+    if (nativeTotal > 0 && total <= 0) {
+      return NextResponse.json(
+        { error: "Invoice amount is too small to charge (rounds to $0.00)." },
+        { status: 400 }
+      );
+    }
 
     const workerId = application.applicant_id;
     const posterId = gig.poster_id;
