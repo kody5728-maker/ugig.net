@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Header } from "@/components/layout/Header";
 import { createServiceClient } from "@/lib/supabase/service";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 export const dynamicParams = true;
 
 type Row = {

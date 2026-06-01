@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev -p 8080",
     "build": "node scripts/build-next.js",
-    "start": "next start -p 8080",
+    "start": "PORT=${PORT:-8080} HOSTNAME=${HOSTNAME:-0.0.0.0} NODE_OPTIONS=\"${NODE_OPTIONS:---max-old-space-size=384}\" node .next/standalone/server.js",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "vitest",

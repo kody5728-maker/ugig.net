@@ -9,9 +9,7 @@ export const metadata = {
   alternates: { canonical: "/blog" },
 };
 
-// ISR — webhook receivers fire asynchronously, so a short cache keeps
-// fresh posts visible without dynamic-rendering every request.
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 type Row = {
   slug: string;
