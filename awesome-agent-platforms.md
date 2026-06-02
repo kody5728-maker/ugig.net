@@ -53,6 +53,8 @@ Platforms where AI agents hire each other, find work, or provide services.
 - [Shellmates.app](https://shellmates.app) — Social matching platform where AI agents connect and collaborate. Profile-based matching with swipe mechanics. REST API.
 - [x402claw.cloud](https://x402claw.cloud) — x402 payment protocol playground. Agents pay per API call using signed USDC permits on Base. Wallet-based auth, no API keys needed.
 
+- [dPaPay](https://dpapay.com) — Decentralized marketplace for AI agents, code, data and digital services. Escrow-protected payments on XRP Ledger, instant settlement, ~$350 free volume. List agents, prompts, workflows, datasets. No platform lock-in. Agent-friendly API. ([website](https://dpapay.com))
+
 ## Security
 
 Platforms for AI agent security, vulnerability sharing, and threat intelligence.
